@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Usage by Department &mdash; Copilot</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --text: #1a1d23;
+    --text-muted: #6b7280;
+    --border: #e5e7eb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    padding: 32px;
+  }
+  .header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; }
+  .header h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px 0; }
+  .header .sub { color: var(--text-muted); font-size: 13px; }
+  .badge {
+    display: inline-block; background: #fef3c7; color: #92400e; font-size: 11px; font-weight: 600;
+    padding: 3px 8px; border-radius: 4px; letter-spacing: 0.03em; text-transform: uppercase;
+  }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  .kpi { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+  .kpi .label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+  .kpi .value { font-size: 24px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+  .card h2 { font-size: 14px; font-weight: 600; margin: 0 0 14px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; color: var(--text-muted); font-weight: 500; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.03em; padding: 6px 8px; border-bottom: 1px solid var(--border);
+  }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  .dept-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; }
+  .legend { display: flex; gap: 14px; margin-bottom: 8px; font-size: 12px; color: var(--text-muted); }
+  .legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+  .footer-note { font-size: 12px; color: var(--text-muted); margin-top: 20px; line-height: 1.6; }
+  .full-width { grid-column: 1 / -1; }
+  .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .bar-label { width: 90px; font-size: 12px; flex-shrink: 0; }
+  .bar-track { flex: 1; background: #f1f2f4; border-radius: 4px; height: 18px; position: relative; }
+  .bar-fill { height: 100%; border-radius: 4px; }
+  .bar-value { width: 90px; font-size: 12px; text-align: right; flex-shrink: 0; color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <h1>AI usage by department &mdash; Microsoft 365 Copilot</h1>
+      <div class="sub" id="generatedAt"></div>
+    </div>
+    <span class="badge" id="modeBadge"></span>
+  </div>
+
+  <div class="kpis" id="kpiRow"></div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Cost by department</h2>
+      <div id="deptBars"></div>
+    </div>
+    <div class="card">
+      <h2>Daily token usage (last 30 days)</h2>
+      <div class="legend" id="trendLegend"></div>
+      <svg id="trendChart" width="100%" height="180" viewBox="0 0 480 180" preserveAspectRatio="none"></svg>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Department summary</h2>
+      <table id="deptTable">
+        <thead><tr><th>Department</th><th>Users</th><th>Tokens</th><th>Cost</th><th>Avg cost / user</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Usage by app</h2>
+      <table id="appTable">
+        <thead><tr><th>App</th><th>Tokens</th><th>Cost</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card full-width">
+    <h2>Top users by token usage</h2>
+    <table id="usersTable">
+      <thead><tr><th>User</th><th>Department</th><th>Tokens</th><th>Cost</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="footer-note">
+    Token and cost figures are modeled estimates (Microsoft Graph's Copilot usage reports return interaction counts,
+    not raw token counts). Values shown here use a documented per-interaction token multiplier as a stand-in until
+    tenant billing/consumption data is wired in. See README-DEMO.md for what's simulated vs. production-ready.
+  </div>
+
+<script>
+const DATA = __USAGE_DATA_JSON__;
+
+const PALETTE = ["#2563eb", "#059669", "#d97706", "#7c3aed", "#dc2626", "#0891b2"];
+const deptColor = {};
+DATA.departments.forEach((d, i) => deptColor[d.name] = PALETTE[i % PALETTE.length]);
+
+function fmtInt(n) { return Math.round(n).toLocaleString(); }
+function fmtUsd(n) { return "$" + n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+
+document.getElementById("generatedAt").textContent = "Generated " + DATA.generatedAt;
+document.getElementById("modeBadge").textContent = DATA.demoMode ? "Demo data" : "Live data";
+
+const kpis = [
+  { label: "Total tokens (30d)", value: fmtInt(DATA.kpis.totalTokens) },
+  { label: "Total cost (30d)", value: fmtUsd(DATA.kpis.totalCost) },
+  { label: "Departments tracked", value: DATA.kpis.departmentCount },
+  { label: "Active Copilot users", value: DATA.kpis.activeUsers },
+];
+document.getElementById("kpiRow").innerHTML = kpis.map(k =>
+  `<div class="kpi"><div class="label">${k.label}</div><div class="value">${k.value}</div></div>`
+).join("");
+
+const maxCost = Math.max(...DATA.departments.map(d => d.cost), 1);
+document.getElementById("deptBars").innerHTML = DATA.departments
+  .slice().sort((a,b) => b.cost - a.cost)
+  .map(d => `
+    <div class="bar-row">
+      <div class="bar-label">${d.name}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(d.cost/maxCost*100).toFixed(1)}%; background:${deptColor[d.name]}"></div></div>
+      <div class="bar-value">${fmtUsd(d.cost)}</div>
+    </div>
+  `).join("");
+
+document.getElementById("trendLegend").innerHTML = DATA.departments.map(d =>
+  `<span><span class="dot" style="background:${deptColor[d.name]}"></span>${d.name}</span>`
+).join("");
+
+(function drawTrend() {
+  const svg = document.getElementById("trendChart");
+  const W = 480, H = 180, PAD = 24;
+  const days = DATA.dailyTrend;
+  const allVals = days.flatMap(d => DATA.departments.map(dep => d[dep.name] || 0));
+  const maxY = Math.max(...allVals, 1);
+  const xStep = (W - PAD * 2) / Math.max(days.length - 1, 1);
+
+  let svgContent = `<line x1="${PAD}" y1="${H-PAD}" x2="${W-PAD}" y2="${H-PAD}" stroke="#e5e7eb" stroke-width="1"/>`;
+
+  DATA.departments.forEach(dep => {
+    const pts = days.map((d, i) => {
+      const x = PAD + i * xStep;
+      const y = H - PAD - ((d[dep.name] || 0) / maxY) * (H - PAD * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(" ");
+    svgContent += `<polyline points="${pts}" fill="none" stroke="${deptColor[dep.name]}" stroke-width="2"/>`;
+  });
+
+  svg.innerHTML = svgContent;
+})();
+
+document.querySelector("#deptTable tbody").innerHTML = DATA.departments
+  .slice().sort((a,b) => b.cost - a.cost)
+  .map(d => `
+    <tr>
+      <td><span class="dept-pill" style="background:${deptColor[d.name]}22; color:${deptColor[d.name]}">${d.name}</span></td>
+      <td>${d.users}</td>
+      <td>${fmtInt(d.tokens)}</td>
+      <td>${fmtUsd(d.cost)}</td>
+      <td>${fmtUsd(d.avgCostPerUser)}</td>
+    </tr>
+  `).join("");
+
+document.querySelector("#appTable tbody").innerHTML = DATA.byApp
+  .map(a => `<tr><td>${a.app}</td><td>${fmtInt(a.tokens)}</td><td>${fmtUsd(a.cost)}</td></tr>`)
+  .join("");
+
+document.querySelector("#usersTable tbody").innerHTML = DATA.topUsers
+  .map(u => `
+    <tr>
+      <td>${u.user}</td>
+      <td><span class="dept-pill" style="background:${deptColor[u.department]}22; color:${deptColor[u.department]}">${u.department}</span></td>
+      <td>${fmtInt(u.tokens)}</td>
+      <td>${fmtUsd(u.cost)}</td>
+    </tr>
+  `).join("");
+</script>
+</body>
+</html>

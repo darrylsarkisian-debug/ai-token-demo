@@ -1,0 +1,12 @@
+# .NET / WPF build output
+app/frontend/AiTokenDashboard/bin/
+app/frontend/AiTokenDashboard/obj/
+
+# Python
+app/backend/__pycache__/
+app/backend/*.pyc
+app/backend/usage_history.db
+
+# Generated demo artifacts (regenerate via Start-Demo.bat / Run-LiveDemo.ps1)
+usage_data.json
+dashboard.html
